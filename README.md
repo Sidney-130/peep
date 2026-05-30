@@ -1,4 +1,4 @@
-# Peep — Smart Transaction Router for Solana
+# Peep: Smart Transaction Router for Solana
 
 A production-grade smart transaction infrastructure stack built on Solana. Peep observes the network in real time, routes and submits transactions intelligently via Jito bundles, tracks the full transaction lifecycle across all commitment levels, and uses an AI agent to make autonomous operational decisions.
 
@@ -8,7 +8,7 @@ Built for the **Smart Transaction Routing** bounty category.
 
 ## What This Builds
 
-Peep is not a simple transaction sender. It is a full transaction routing stack that understands the Solana transaction lifecycle end-to-end — from leader scheduling and TPU ingestion through block production, shred propagation, and all commitment stages — and reacts intelligently at every step.
+Peep is not a simple transaction sender. It is a full transaction routing stack that understands the Solana transaction lifecycle end-to-end, from leader scheduling and TPU ingestion through block production, shred propagation, and all commitment stages, and reacts intelligently at every step.
 
 ---
 
@@ -67,7 +67,7 @@ Yellowstone gRPC Stream
         │                                            │
         │                                    Live tip account data
         ▼
- AI Agent (Claude)
+ AI Agent (Grok)
   - Observes slot conditions
   - Decides tip amount / submission timing / retry strategy
         │
@@ -91,14 +91,14 @@ The AI agent owns **Tip Intelligence** as its primary decision domain:
 - Reads recent tip account data from Jito tip distribution accounts
 - Observes current slot pace and leader quality from the live stream
 - Decides tip amount per bundle, balancing cost against landing probability
-- Reasoning is logged per submission — not a sequential wrapper
+- Reasoning is logged per submission (not a sequential wrapper)
 
 The agent also handles **Failure Reasoning**:
 
 - Detects failure classification (expired blockhash, fee too low, compute exceeded, bundle skip)
 - Reasons about cause
 - Decides whether to retry, refresh blockhash, recalculate tip, or abort
-- No hardcoded retry flow — all retry decisions route through the agent
+- No hardcoded retry flow; all retry decisions route through the agent
 
 ---
 
@@ -126,45 +126,6 @@ Each bundle submission produces a log entry:
 ```
 
 Minimum 10 real bundle submissions included, with at least 2 failure cases. Slot numbers are verifiable on Solscan / SolanaFM.
-
----
-
-## README Questions
-
-### Q1: What does the delta between `processed_at` and `confirmed_at` tell you about network health at the time of submission?
-
-The processed → confirmed delta reflects how quickly the supermajority of stake (66%+) voted on the block containing your transaction. Under normal network conditions this is roughly 400ms–800ms (2–4 slots). A large delta — several seconds or more — signals one or more of: elevated fork activity where validators are not voting on the same branch, a degraded leader producing slow or skipped blocks, or network congestion causing vote transaction delays. When this delta is consistently high across multiple submissions, it is a leading indicator that confirmation latency will be elevated and that using `confirmed` commitment for downstream reads may produce stale results. In a live routing stack, tracking this delta as a rolling metric lets the AI agent adjust tip aggressively or hold submissions until the network stabilizes.
-
-### Q2: Why should you never use `finalized` commitment when fetching a blockhash for a time-sensitive transaction?
-
-A blockhash fetched at `finalized` commitment is already 31+ slots old by the time you receive it (finalization requires ~32 slots of voting). Since a blockhash is valid for 150 slots from the slot it was produced, starting with a 31-slot-old hash leaves you fewer than 120 slots of validity — roughly 48 seconds. Under any retry or resubmission scenario this window shrinks fast and blockhash expiry becomes your most likely failure mode. For time-sensitive transactions you should fetch at `confirmed` commitment, which gives you a recent blockhash (2–4 slots old) with nearly the full 150-slot validity window intact. `processed` is faster but carries fork risk — the block may not get confirmed, invalidating the hash.
-
-### Q3: What happens to your bundle if the Jito leader skips their slot?
-
-Jito bundles are submitted to the Jito Block Engine, which forwards them to the designated Jito-enabled leader for the upcoming slot. If that leader skips their slot — due to being offline, failing to produce a block in time, or being forked out — the bundle is never included because there is no block to include it in. The bundle does not automatically roll over to the next leader. The Block Engine will return a bundle status of `Failed` or the bundle will time out with no on-chain result. The correct response is to detect the skip via the slot stream (the slot advances without a block from that leader), classify it as a `bundle_skip` failure, fetch a fresh blockhash, recalculate the tip based on the new leader's conditions, and resubmit. This is one of the failure cases the AI agent handles autonomously in this stack.
-
----
-
-## Setup
-
-```bash
-# Install dependencies
-npm install
-
-# Copy env template
-cp .env.example .env
-# Fill in: SOLANA_RPC_URL, YELLOWSTONE_ENDPOINT, JITO_AUTH_KEYPAIR, ANTHROPIC_API_KEY, DATABASE_URL
-
-# Run database migrations
-npx prisma migrate dev
-
-# Start dev server
-npm run dev
-
-# Build for production
-npm run build
-npm start
-```
 
 ---
 
